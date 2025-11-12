@@ -1,4 +1,6 @@
 import os
+import zipfile
+import time
 from flask import Flask, request, redirect, url_for, send_from_directory, render_template_string
 from werkzeug.utils import secure_filename
 from trace import trace as trace_image
@@ -22,27 +24,37 @@ def allowed_file(filename):
 @app.route('/', methods=['GET', 'POST'])
 def upload_file():
     if request.method == 'POST':
-        if 'file' not in request.files:
+        files = request.files.getlist('file')
+        if not files or files[0].filename == '':
             return redirect(request.url)
-        file = request.files['file']
-        if file.filename == '':
-            return redirect(request.url)
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            input_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(input_path)
 
-            svg_filepath = trace_image(input_path, app.config['PROCESSED_FOLDER'])
-            svg_filename = os.path.basename(svg_filepath)
+        svg_files = []
+        for file in files:
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                input_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(input_path)
 
-            return redirect(url_for('download_file', filename=svg_filename))
+                svg_filepath = trace_image(input_path, app.config['PROCESSED_FOLDER'])
+                svg_files.append(svg_filepath)
+
+        if len(svg_files) == 1:
+            return redirect(url_for('download_file', filename=os.path.basename(svg_files[0])))
+        elif len(svg_files) > 1:
+            zip_filename = f"traced_images_{int(time.time())}.zip"
+            zip_filepath = os.path.join(app.config['PROCESSED_FOLDER'], zip_filename)
+            with zipfile.ZipFile(zip_filepath, 'w') as zipf:
+                for svg_file in svg_files:
+                    zipf.write(svg_file, os.path.basename(svg_file))
+            
+            return redirect(url_for('download_file', filename=zip_filename))
 
     return render_template_string('''
     <!doctype html>
     <title>Upload JPG or PNG to Trace</title>
     <h1>Upload a JPG or PNG to trace into an SVG</h1>
     <form method=post enctype=multipart/form-data>
-      <input type=file name=file>
+      <input type=file name=file multiple>
       <input type=submit value=Upload>
     </form>
     ''')
