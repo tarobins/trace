@@ -9,3 +9,6 @@ src/__pycache__/
 examples/*.svg
 processed/
 uploads/
+
+# SSL certificates
+*.pem
