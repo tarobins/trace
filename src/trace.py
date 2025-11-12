@@ -4,7 +4,7 @@ from PIL import Image
 import numpy as np
 from potrace import Bitmap
 
-def trace(filename):
+def trace(filename, output_dir=None):
     """
     Traces a bitmap image to an SVG vector graphic using settings
     that mimic Inkscape's default "Trace Bitmap" functionality.
@@ -18,8 +18,9 @@ def trace(filename):
     # Convert to numpy array and apply threshold
     data = np.array(img)
     threshold = 0.45 * 255
-    data[data > threshold] = 255
-    data[data <= threshold] = 0
+    
+    # Convert to boolean: True for black (<= threshold), False for white (> threshold)
+    data = data <= threshold 
 
     # Create a potrace.Bitmap object from the numpy array
     bitmap = Bitmap(data)
@@ -37,12 +38,12 @@ def trace(filename):
     width, height = img.size
     path_data = []
     for curve in path_list:
-        path_data.append(f'M{curve.start_point.x},{curve.start_point.y}')
+        path_data.append(f'M{curve.start_point[0]},{curve.start_point[1]}')
         for segment in curve:
             if segment.is_corner:
-                path_data.append(f'L{segment.c.x},{segment.c.y}L{segment.end_point.x},{segment.end_point.y}')
+                path_data.append(f'L{segment.c[0]},{segment.c[1]}L{segment.end_point[0]},{segment.end_point[1]}')
             else:
-                path_data.append(f'C{segment.c1.x},{segment.c1.y} {segment.c2.x},{segment.c2.y} {segment.end_point.x},{segment.end_point.y}')
+                path_data.append(f'C{segment.c1[0]},{segment.c1[1]} {segment.c2[0]},{segment.c2[1]} {segment.end_point[0]},{segment.end_point[1]}')
         path_data.append('Z')
     
     path_d = "".join(path_data)
@@ -54,12 +55,23 @@ def trace(filename):
     svg = "".join(svg_data)
 
     # Save the SVG to a file
-    basename, _ = os.path.splitext(filename)
+    basename, _ = os.path.splitext(os.path.basename(filename))
     svg_filename = basename + ".svg"
-    with open(svg_filename, "w") as f:
+
+    if output_dir:
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        svg_filepath = os.path.join(output_dir, svg_filename)
+    else:
+        # if no output_dir is given, save in the same directory as the input file
+        svg_filepath = os.path.join(os.path.dirname(filename), svg_filename)
+        
+
+    with open(svg_filepath, "w") as f:
         f.write(svg)
 
-    print(f"Successfully traced {filename} to {svg_filename}")
+    print(f"Successfully traced {filename} to {svg_filepath}")
+    return svg_filepath
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
