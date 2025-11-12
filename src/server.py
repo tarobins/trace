@@ -5,7 +5,7 @@ from trace import trace as trace_image
 
 UPLOAD_FOLDER = os.path.abspath('uploads')
 PROCESSED_FOLDER = os.path.abspath('processed')
-ALLOWED_EXTENSIONS = {'jpg', 'jpeg'}
+ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png'}
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -39,8 +39,8 @@ def upload_file():
 
     return render_template_string('''
     <!doctype html>
-    <title>Upload JPG to Trace</title>
-    <h1>Upload a JPG to trace into an SVG</h1>
+    <title>Upload JPG or PNG to Trace</title>
+    <h1>Upload a JPG or PNG to trace into an SVG</h1>
     <form method=post enctype=multipart/form-data>
       <input type=file name=file>
       <input type=submit value=Upload>
