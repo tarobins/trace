@@ -8,13 +8,14 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install any needed packages specified in requirements.txt
-RUN apt-get update && apt-get install -y pkg-config libagg-dev build-essential libpotrace-dev
+RUN apt-get update && apt-get install -y pkg-config libagg-dev build-essential libpotrace-dev openssl
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Generate self-signed certificate
+RUN openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 365 -nodes -subj "/C=XX/ST=StateName/L=CityName/O=CompanyName/OU=OrgName/CN=localhost"
 
 # Copy the rest of the application's code
 COPY src/ ./src/
-COPY cert.pem .
-COPY key.pem .
 
 # Create the uploads and processed directories
 RUN mkdir -p /app/uploads && mkdir -p /app/processed
