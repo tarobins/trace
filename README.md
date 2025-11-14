@@ -18,7 +18,7 @@ This project provides a web service to trace JPG or PNG images into SVG format.
 3.  **Generate SSL Certificates:**
     The server runs with SSL. You need to generate self-signed certificates.
     ```bash
-    openssl req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365
+    openssl req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365 -subj "/C=US/ST=CA/L=Mountain View/O=Google/OU=Gemini/CN=localhost"
     ```
     When prompted, you can enter arbitrary information, or just hit enter to accept defaults for most fields. The "Common Name" can be `localhost`.
 
