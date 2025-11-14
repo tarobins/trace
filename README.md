@@ -35,3 +35,16 @@ This project provides a web service to trace JPG or PNG images into SVG format.
     ```
 
 The server will be accessible at `https://localhost:5001`.
+
+## Docker
+
+### Building the Docker Image
+```bash
+docker build -t trace-app .
+```
+
+### Running the Docker Container
+```bash
+docker run -d -p 5001:5001 --name trace-app-instance trace-app
+```
+The server will be accessible at `https://localhost:5001`.
