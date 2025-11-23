@@ -1,9 +1,7 @@
 import os
-# import io # Not needed with the new SDK's direct byte access
 from flask import Flask, request, render_template_string, jsonify
 from google import genai
 from google.genai import types
-# from PIL import Image # Not needed for just saving bytes
 from trace import trace_image_from_path, trace_image_bytes
 
 app = Flask(__name__)
@@ -11,13 +9,9 @@ app = Flask(__name__)
 # --- CONFIG ---
 API_KEY = os.environ.get("GOOGLE_API_KEY")
 
-# Initialize the Client
 client = None
 if API_KEY:
     client = genai.Client(api_key=API_KEY)
-
-# Define a debug file path right in your project root
-DEBUG_IMAGE_PATH = os.path.abspath("debug_generated_image.png")
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -109,13 +103,10 @@ def upload_file():
 @app.route('/generate', methods=['POST'])
 def generate_svg():
     if not client:
-        print("!!! [ERROR] GOOGLE_API_KEY not set.")
         return jsonify({'error': 'Server missing GOOGLE_API_KEY'}), 500
 
     user_prompt = request.json.get('prompt', '')
-    print(f"--- [DEBUG] Received generation request for: '{user_prompt}' ---")
     
-    # 1. Prompt Engineering
     full_prompt = (
         f"Simple black and white line art of {user_prompt}. "
         "Flat vector graphics. Bold solid lines. Pure white background. "
@@ -123,8 +114,7 @@ def generate_svg():
     )
 
     try:
-        # 2. Use Gemini 2.5 Flash Image ("Nano Banana")
-        print("--- [DEBUG] Calling Gemini API... ---")
+        # Use Gemini 2.5 Flash Image ("Nano Banana")
         response = client.models.generate_content(
             model='gemini-2.5-flash-image',
             contents=full_prompt,
@@ -136,39 +126,19 @@ def generate_svg():
                 )]
             )
         )
-        print("--- [DEBUG] Gemini API response received. ---")
         
-        # 3. Extract Image Bytes
         for part in response.candidates[0].content.parts:
             if part.inline_data:
                 img_bytes = part.inline_data.data
-                print(f"--- [DEBUG] Image data extracted. Size: {len(img_bytes)} bytes. ---")
-                
-                # --- DEBUG: SAVE IMAGE TO FILE ---
-                try:
-                    with open(DEBUG_IMAGE_PATH, "wb") as f:
-                        f.write(img_bytes)
-                    print(f"--- [DEBUG] SAVED GENERATED IMAGE TO: {DEBUG_IMAGE_PATH} ---")
-                except Exception as e:
-                    print(f"!!! [ERROR] Failed to save debug image: {e}")
-                # ---------------------------------
-
-                # 4. Trace it
-                print("--- [DEBUG] Calling trace_image_bytes... ---")
                 svg_output = trace_image_bytes(img_bytes)
-                print("--- [DEBUG] Trace complete. Sending response. ---")
                 return jsonify({'svg': svg_output})
                 
-        print("!!! [ERROR] No image data found in API response.")
         return jsonify({'error': 'No image generated in response'}), 500
 
     except Exception as e:
-        print(f"!!! [ERROR] Exception during generation/tracing: {e}")
-        # Print full error traceback to console for debugging
-        import traceback
-        traceback.print_exc() 
+        print(f"Error: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    # Ensure SSL for local development if needed, or run behind proxy
+    # Running on http allows you to access it easily via localhost
     app.run(host='0.0.0.0', port=5001)
