@@ -23,8 +23,8 @@ HTML_TEMPLATE = """
         body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
         .container { border: 1px solid #ccc; padding: 2rem; border-radius: 8px; margin-bottom: 2rem; }
         input[type="text"] { width: 70%; padding: 10px; }
-        button { padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
-        button:hover { background: #0056b3; }
+        button, input[type="submit"] { padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+        button:hover, input[type="submit"]:hover { background: #0056b3; }
         #result { margin-top: 2rem; border: 1px dashed #ccc; padding: 1rem; min-height: 200px; display: flex; justify-content: center; align-items: center; }
         svg { max-width: 100%; height: auto; }
         .loading { color: #666; font-style: italic; }
@@ -45,15 +45,16 @@ HTML_TEMPLATE = """
 
     <div class="container">
         <h2>Trace Existing Image</h2>
-        <form action="/upload" method="post" enctype="multipart/form-data">
-            <input type="file" name="file" accept="image/*">
+        <form id="uploadForm" onsubmit="uploadAndTrace(event)">
+            <input type="file" name="file" accept="image/*" required>
             <input type="submit" value="Upload & Trace">
         </form>
     </div>
 
-    <div id="result">Generated SVG will appear here...</div>
+    <div id="result">Generated/Traced SVG will appear here...</div>
 
     <script>
+        // --- 1. GENERATE FROM TEXT ---
         async function generateSvg() {
             const promptInput = document.getElementById('promptInput');
             const prompt = promptInput.value.trim();
@@ -70,16 +71,14 @@ HTML_TEMPLATE = """
                 });
                 
                 const data = await response.json();
-                
-                if (!response.ok) {
-                    throw new Error(data.error || "Unknown error");
-                }
+                if (!response.ok) throw new Error(data.error || "Unknown error");
 
-                // 1. Display the SVG
+                // Display
                 resultDiv.innerHTML = data.svg;
-
-                // 2. Automatically Download the SVG
-                downloadSvg(data.svg, prompt);
+                
+                // Download (Name file based on prompt)
+                const filename = prompt.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.svg';
+                downloadSvg(data.svg, filename);
 
             } catch (err) {
                 console.error(err);
@@ -87,22 +86,54 @@ HTML_TEMPLATE = """
             }
         }
 
-        function downloadSvg(svgContent, prompt) {
-            // Create a filename from the prompt (e.g. "cute beaver" -> "cute_beaver.svg")
-            const safeFilename = prompt.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.svg';
+        // --- 2. UPLOAD EXISTING IMAGE ---
+        async function uploadAndTrace(event) {
+            event.preventDefault(); // Stop page reload
             
-            // Create a Blob object from the SVG text
+            const form = document.getElementById('uploadForm');
+            const fileInput = form.querySelector('input[type="file"]');
+            const resultDiv = document.getElementById('result');
+            
+            if (!fileInput.files.length) return alert("Please select a file");
+            
+            const formData = new FormData(form);
+            resultDiv.innerHTML = '<span class="loading">Uploading and tracing...</span>';
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || "Unknown error");
+
+                // Display
+                resultDiv.innerHTML = data.svg;
+
+                // Download (Name file based on original filename)
+                // e.g. "my_photo.jpg" -> "my_photo_traced.svg"
+                let originalName = fileInput.files[0].name;
+                let filename = originalName.substring(0, originalName.lastIndexOf('.')) || originalName;
+                filename += "_traced.svg";
+                
+                downloadSvg(data.svg, filename);
+
+            } catch (err) {
+                console.error(err);
+                resultDiv.innerHTML = '<div class="error">Error: ' + err.message + '</div>';
+            }
+        }
+
+        // --- HELPER: DOWNLOAD SVG ---
+        function downloadSvg(svgContent, filename) {
             const blob = new Blob([svgContent], { type: 'image/svg+xml' });
             const url = URL.createObjectURL(blob);
-            
-            // Create a temporary anchor link and click it
             const a = document.createElement('a');
             a.href = url;
-            a.download = safeFilename;
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
-            
-            // Clean up
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
@@ -117,14 +148,18 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files: return 'No file', 400
+    if 'file' not in request.files: return jsonify({'error': 'No file part'}), 400
     file = request.files['file']
-    if file.filename == '': return 'No selected file', 400
+    if file.filename == '': return jsonify({'error': 'No selected file'}), 400
     
     temp_path = os.path.join('/tmp', file.filename)
     file.save(temp_path)
     try:
-        return trace_image_from_path(temp_path), 200, {'Content-Type': 'image/svg+xml'}
+        svg_content = trace_image_from_path(temp_path)
+        # Now returns JSON to match the generation endpoint
+        return jsonify({'svg': svg_content})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
     finally:
         if os.path.exists(temp_path): os.remove(temp_path)
 
@@ -142,7 +177,6 @@ def generate_svg():
     )
 
     try:
-        # Use Gemini 2.5 Flash Image ("Nano Banana")
         response = client.models.generate_content(
             model='gemini-2.5-flash-image',
             contents=full_prompt,

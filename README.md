@@ -31,6 +31,7 @@ This project provides a web service to trace JPG or PNG images into SVG format.
 
 2.  **Start the Flask server:**
     ```bash
+    export GOOGLE_API_KEY="your_api_key_here"
     python src/server.py
     ```
 
@@ -45,6 +46,6 @@ docker build -t trace-app .
 
 ### Running the Docker Container
 ```bash
-docker run -d -p 5001:5001 --name trace-app-instance trace-app
+docker run -p 5001:5001 -e GOOGLE_API_KEY="your_api_key_here" trace-app
 ```
 The server will be accessible at `https://localhost:5001`.
