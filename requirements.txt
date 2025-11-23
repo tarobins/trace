@@ -2,4 +2,4 @@ Flask
 Pillow
 numpy
 pypotrace
-google-generativeai
+google-genai

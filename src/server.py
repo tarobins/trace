@@ -1,16 +1,21 @@
 import os
 import io
-from flask import Flask, request, send_file, render_template_string, jsonify
-import google.generativeai as genai
+from flask import Flask, request, render_template_string, jsonify
+from google import genai
+from google.genai import types
+from PIL import Image
 from trace import trace_image_from_path, trace_image_bytes
 
 app = Flask(__name__)
 
 # --- CONFIG ---
-# Get API key from environment
 API_KEY = os.environ.get("GOOGLE_API_KEY")
+
+# Initialize the NEW V1 Client
+# We do this globally or per request. Global is fine for simple apps.
+client = None
 if API_KEY:
-    genai.configure(api_key=API_KEY)
+    client = genai.Client(api_key=API_KEY)
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -20,13 +25,13 @@ HTML_TEMPLATE = """
     <style>
         body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
         .container { border: 1px solid #ccc; padding: 2rem; border-radius: 8px; margin-bottom: 2rem; }
-        h2 { margin-top: 0; }
         input[type="text"] { width: 70%; padding: 10px; }
         button { padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
         button:hover { background: #0056b3; }
         #result { margin-top: 2rem; border: 1px dashed #ccc; padding: 1rem; min-height: 200px; display: flex; justify-content: center; align-items: center; }
         svg { max-width: 100%; height: auto; }
         .loading { color: #666; font-style: italic; }
+        .error { color: red; background: #ffe6e6; padding: 10px; border-radius: 4px; }
     </style>
 </head>
 <body>
@@ -49,9 +54,7 @@ HTML_TEMPLATE = """
         </form>
     </div>
 
-    <div id="result">
-        Generated/Traced SVG will appear here...
-    </div>
+    <div id="result">Generated SVG will appear here...</div>
 
     <script>
         async function generateSvg() {
@@ -59,8 +62,7 @@ HTML_TEMPLATE = """
             const resultDiv = document.getElementById('result');
             
             if (!prompt) return alert("Please enter a prompt");
-
-            resultDiv.innerHTML = '<span class="loading">Generating image and tracing... (this may take a few seconds)</span>';
+            resultDiv.innerHTML = '<span class="loading">Generating image (Imagen 3) and tracing...</span>';
 
             try {
                 const response = await fetch('/generate', {
@@ -68,13 +70,15 @@ HTML_TEMPLATE = """
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ prompt: prompt })
                 });
-
-                if (!response.ok) throw new Error(await response.text());
-
+                
                 const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || "Unknown error");
+                }
                 resultDiv.innerHTML = data.svg;
             } catch (err) {
-                resultDiv.innerHTML = '<p style="color:red">Error: ' + err.message + '</p>';
+                resultDiv.innerHTML = '<div class="error">Error: ' + err.message + '</div>';
             }
         }
     </script>
@@ -88,88 +92,65 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files:
-        return 'No file part', 400
+    if 'file' not in request.files: return 'No file', 400
     file = request.files['file']
-    if file.filename == '':
-        return 'No selected file', 400
+    if file.filename == '': return 'No selected file', 400
     
-    # Save temp file
     temp_path = os.path.join('/tmp', file.filename)
     file.save(temp_path)
-    
     try:
-        svg_content = trace_image_from_path(temp_path)
-        # Return simpler view for upload (or redirect to index with result)
-        # For now, just returning the raw SVG as the original app likely did
-        return svg_content, 200, {'Content-Type': 'image/svg+xml'}
+        return trace_image_from_path(temp_path), 200, {'Content-Type': 'image/svg+xml'}
     finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        if os.path.exists(temp_path): os.remove(temp_path)
 
 @app.route('/generate', methods=['POST'])
 def generate_svg():
-    if not API_KEY:
+    if not client:
         return jsonify({'error': 'Server missing GOOGLE_API_KEY'}), 500
 
-    data = request.json
-    user_prompt = data.get('prompt', '')
+    user_prompt = request.json.get('prompt', '')
     
-    # THE MAGIC PROMPT
-    system_instruction = (
+    # 1. Prompt Engineering
+    full_prompt = (
         f"Simple black and white line art of {user_prompt}. "
         "Flat vector graphics. Bold solid lines. Pure white background. "
         "Coloring book style. No shading, no gradients, no borders, no drop shadows."
     )
 
     try:
-        # Use Gemini 3 (or best available model)
-        # Note: 'gemini-1.5-flash' is often the fastest/cheapest for simple generation if 3 isn't available
-        # You can try 'gemini-2.0-flash-exp' or 'gemini-3-exp' if your key has access
-        model = genai.GenerativeModel('gemini-1.5-flash') 
-        
-        # Currently, text-to-image is not available via the standard 'generate_content' text API
-        # on all models. If using Imagen 3 via Gemini API, the call looks different.
-        # However, purely for this example, we will assume you have access to a model
-        # that supports image generation or use the Imagen endpoint.
-        
-        # NOTE: As of late 2025, standard Vertex AI / Gemini API image gen is usually:
-        # response = model.generate_content(prompt) (if multimodal)
-        # OR specific Image generation clients. 
-        
-        # Let's try the safest "Imagen" path available in the standard library:
-        # If this fails, we might need the specific 'imagen-3.0-generate-001' model string
-        
-        # ACTUAL WORKING CODE for standard GenAI Image generation (simplified):
-        # We will use the 'imagen-3.0-generate-001' model if available, or allow the 
-        # library to pick the default image model.
-        
-        # Since standard Gemini SDK text-to-image is in flux, let's use the 'imagen' reference:
-        import base64
-        
-        # This is a placeholder for the exact Image Generation call 
-        # which varies slightly by SDK version. 
-        # Assuming we are using a simplified helper or valid model:
-        image_response = genai.ImageGenerationModel("imagen-3.0-generate-001").generate_images(
-            prompt=system_instruction,
-            number_of_images=1
+        # 2. Use Gemini 3 Pro Image Preview ("Nano Banana Pro")
+        # Note: We use 'generate_content' and request output modality as IMAGE
+        response = client.models.generate_content(
+            model='gemini-2.5-flash-image',
+            contents=full_prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
+                safety_settings=[types.SafetySetting(
+                    category="HARM_CATEGORY_DANGEROUS_CONTENT",
+                    threshold="BLOCK_ONLY_HIGH"
+                )]
+            )
         )
         
-        # Extract the first image (usually a PIL Image or bytes)
-        generated_image = image_response[0]
-        
-        # Get bytes
-        img_byte_arr = io.BytesIO()
-        generated_image.save(img_byte_arr, format='PNG')
-        img_bytes = img_byte_arr.getvalue()
-
-        # Trace it
-        svg_output = trace_image_bytes(img_bytes)
-        
-        return jsonify({'svg': svg_output})
+        # 3. Extract Image Bytes
+        # The structure is slightly different for Multi-modal generation
+        for part in response.candidates[0].content.parts:
+            if part.inline_data:
+                img_bytes = part.inline_data.data
+                
+                # 4. Trace it
+                svg_output = trace_image_bytes(img_bytes)
+                return jsonify({'svg': svg_output})
+                
+        return jsonify({'error': 'No image generated in response'}), 500
 
     except Exception as e:
+        print(f"Error: {e}")
+        # Print full error to console for debugging
+        import traceback
+        traceback.print_exc() 
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
+    # Ensure SSL for local development if needed, or run behind proxy
     app.run(host='0.0.0.0', port=5001, ssl_context=('cert.pem', 'key.pem'))
