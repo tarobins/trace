@@ -1,4 +1,5 @@
 import os
+import re
 from flask import Flask, request, render_template_string, jsonify
 from google import genai
 from google.genai import types
@@ -54,7 +55,8 @@ HTML_TEMPLATE = """
 
     <script>
         async function generateSvg() {
-            const prompt = document.getElementById('promptInput').value;
+            const promptInput = document.getElementById('promptInput');
+            const prompt = promptInput.value.trim();
             const resultDiv = document.getElementById('result');
             
             if (!prompt) return alert("Please enter a prompt");
@@ -72,11 +74,37 @@ HTML_TEMPLATE = """
                 if (!response.ok) {
                     throw new Error(data.error || "Unknown error");
                 }
+
+                // 1. Display the SVG
                 resultDiv.innerHTML = data.svg;
+
+                // 2. Automatically Download the SVG
+                downloadSvg(data.svg, prompt);
+
             } catch (err) {
                 console.error(err);
                 resultDiv.innerHTML = '<div class="error">Error: ' + err.message + '</div>';
             }
+        }
+
+        function downloadSvg(svgContent, prompt) {
+            // Create a filename from the prompt (e.g. "cute beaver" -> "cute_beaver.svg")
+            const safeFilename = prompt.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.svg';
+            
+            // Create a Blob object from the SVG text
+            const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            
+            // Create a temporary anchor link and click it
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = safeFilename;
+            document.body.appendChild(a);
+            a.click();
+            
+            // Clean up
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
     </script>
 </body>
@@ -140,5 +168,4 @@ def generate_svg():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    # Running on http allows you to access it easily via localhost
     app.run(host='0.0.0.0', port=5001)
