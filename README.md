@@ -33,6 +33,12 @@ This project provides a web service to trace JPG or PNG images into SVG format.
     ```bash
     export GOOGLE_API_KEY="your_api_key_here"
     python src/server.py
+
+3.  **For Development (with auto-reloading):**
+    ```bash
+    flask --app src/server.py run --debug
+    ```
+
     ```
 
 The server will be accessible at `https://localhost:5001`.
